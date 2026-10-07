@@ -130,6 +130,48 @@ impl ParentNode {
             path_secrets.push(path_secret);
         }
 
+        // Test-only hook (RFC 9420 §16.12 fragmentation PoC, Attack 1).
+        // Replace the path secret at `slot` with an unrelated secret *before*
+        // keys and parent hashes are derived. The advertised key at `slot`
+        // becomes `Pub(injected)` (so the binding is self-consistent), but the
+        // chain from `slot` to `slot + 1` is now broken. Slots above `slot`
+        // keep their honest secrets, so `commit_secret` and every higher node
+        // key are unchanged. See `crate::malicious_committer`.
+        #[cfg(feature = "malicious-committer")]
+        if let Some(crate::malicious_committer::CorruptionPlan::InjectUnrelatedPathSecret {
+            slot,
+            injected_secret_bytes,
+        }) = crate::malicious_committer::current()
+        {
+            if let Some(target) = path_secrets.get_mut(slot) {
+                *target = crate::ciphersuite::Secret::from_slice(&injected_secret_bytes).into();
+            }
+        }
+
+        // Test-only hook (Attack 2). If configured, at `slot` we keep
+        // the honest path secret (so the encrypted ciphertext is the honest
+        // chain) but derive the advertised keypair from an unrelated secret. The
+        // committer stores the resulting private key (so it still owns the
+        // advertised key and stays consistent), and the parent hash / tree hash
+        // are computed over the advertised key. A member that decrypts exactly
+        // `slot` recovers the honest secret, re-derives the honest key, and finds
+        // it differs from the advertised key (ValSem204 → PathMismatch); members
+        // starting above `slot` never check it and accept.
+        #[cfg(feature = "malicious-committer")]
+        let advertised_key_override: Option<(usize, EncryptionKeyPair)> =
+            match crate::malicious_committer::current() {
+                Some(crate::malicious_committer::CorruptionPlan::AdvertiseUnrelatedKeyDeep {
+                    slot,
+                    advertised_secret_bytes,
+                }) => {
+                    let advertised_secret: PathSecret =
+                        crate::ciphersuite::Secret::from_slice(&advertised_secret_bytes).into();
+                    let keypair = advertised_secret.derive_key_pair(crypto, ciphersuite)?;
+                    Some((slot, keypair))
+                }
+                _ => None,
+            };
+
         type PathDerivationResults = (
             Vec<((ParentNodeIndex, ParentNode), EncryptionKeyPair)>,
             Vec<PlainUpdatePathNode>,
@@ -144,15 +186,31 @@ impl ParentNode {
 
         let (path_with_keypairs, update_path_nodes): PathDerivationResults = path_secrets
             .zip(path_indices)
-            .map(|(path_secret, index)| {
+            .enumerate()
+            .map(|(_position, (path_secret, index))| {
                 // Derive a key pair from the path secret. This includes the
                 // intermediate derivation of a node secret.
-                let keypair = path_secret.derive_key_pair(crypto, ciphersuite)?;
-                let parent_node = ParentNode::from(keypair.public_key().clone());
+                #[cfg_attr(not(feature = "malicious-committer"), allow(unused_mut))]
+                let mut keypair = path_secret.derive_key_pair(crypto, ciphersuite)?;
+
+                // Test-only (Attack 2): at `slot`, replace the keypair
+                // with one derived from an unrelated secret (so the committer
+                // owns and advertises the unrelated key, consistently in the
+                // parent node and update path node) while leaving `path_secret`
+                // — and hence the encrypted ciphertext — honest.
+                #[cfg(feature = "malicious-committer")]
+                if let Some((slot, override_keypair)) = &advertised_key_override {
+                    if *slot == _position {
+                        keypair = override_keypair.clone();
+                    }
+                }
+
+                let advertised_key = keypair.public_key().clone();
+                let parent_node = ParentNode::from(advertised_key.clone());
                 // Store the current path secret and the derived public key for
                 // later encryption.
                 let update_path_node = PlainUpdatePathNode {
-                    public_key: keypair.public_key().clone(),
+                    public_key: advertised_key,
                     path_secret,
                 };
                 Ok((((index, parent_node), keypair), update_path_node))

@@ -18,6 +18,8 @@ mod external_group_context_extensions_proposal;
 mod external_join_add_proposal;
 mod external_psk_proposal;
 mod external_remove_proposal;
+#[cfg(feature = "malicious-committer")]
+mod fragmentation;
 mod framing;
 mod framing_validation;
 mod group;

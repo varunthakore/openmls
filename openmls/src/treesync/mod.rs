@@ -231,6 +231,22 @@ impl RatchetTree {
             Node::LeafNode(_leaf_node) => None,
         })
     }
+
+    /// Returns the node at the given array-representation index (leaves at even
+    /// indices, parent nodes at odd indices), or `None` if the slot is blank or
+    /// out of range. Test-only helper used to assert exact tree shapes for the
+    /// RFC 9420 §16.12 fragmentation PoC.
+    #[cfg(any(test, feature = "malicious-committer"))]
+    pub fn node_at(&self, index: usize) -> Option<&Node> {
+        self.0.get(index).and_then(|slot| slot.as_ref())
+    }
+
+    /// Returns the number of array-representation slots (including blanks).
+    /// Test-only helper, see [`RatchetTree::node_at`].
+    #[cfg(any(test, feature = "malicious-committer"))]
+    pub fn slots_len(&self) -> usize {
+        self.0.len()
+    }
 }
 
 /// A ratchet tree made of unverified nodes. This is used for deserialization

@@ -183,6 +183,9 @@ pub mod framing;
 pub mod grease;
 pub mod group;
 pub mod key_packages;
+#[cfg(feature = "malicious-committer")]
+#[cfg_attr(docsrs, doc(cfg(feature = "malicious-committer")))]
+pub mod malicious_committer;
 pub mod messages;
 pub mod schedule;
 #[cfg(feature = "targeted-messages-draft")]

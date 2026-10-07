@@ -157,6 +157,13 @@ draft-ietf-mls-pq-ciphersuites = [
 # enable randomness source
 fork-resolution = []
 
+# Test-only: allow a committer to inject a malformed `UpdatePath` during commit
+# creation, so the transcript hash and confirmation tag are computed over the
+# already-malformed path. Used exclusively by the `fragmentation` tests to
+# demonstrate RFC 9420 §16.12 group fragmentation. Off by default; the hook
+# compiles out entirely when disabled.
+malicious-committer = []
+
 # Enable unchecked conversions for types that need to be verified or validated.
 unchecked-conversions = []
 
